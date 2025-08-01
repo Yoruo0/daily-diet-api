@@ -17,7 +17,7 @@ login_manager.login_view = 'login'
 
 @login_manager.user_loader
 def load_user(user_id):
-     return User.query.get(user_id)
+    return db.session.get(User, user_id)
 
 
 @app.route('/login', methods=['POST'])
@@ -57,7 +57,7 @@ def create_user():
     
     hashed_password = bcrypt.hashpw(password.encode('utf8'), bcrypt.gensalt()) 
 
-    new_user = User(username=username, password=hashed_password)
+    new_user = User(username=username, password=hashed_password, role='user')
 
     try:
         db.session.add(new_user)
@@ -71,7 +71,7 @@ def create_user():
 @login_required
 def read_user(id_user):
 
-    if current_user != id_user:
+    if current_user != id_user and current_user.role != 'admin':
         return jsonify({"message": "Forbidden"}), 403
 
     user = User.query.get(id_user)
@@ -118,17 +118,102 @@ def register_meal(id_user):
 @login_required
 def get_meal_details(id_user, id_meal):
 
-    if current_user.id != id_user:
+    if current_user.id != id_user and current_user.role != 'admin':
         return jsonify({"message": "Forbidden"}), 403
 
-    meal = Meal.query.filter_by(id=id_meal, user_id=id_user).first()
+    meals = Meal.query.filter_by(id=id_meal, user_id=id_user).first()
 
-    if not meal:
+    if not meals:
         return jsonify({"message":"Meal not found."}), 404
     
-    return jsonify(meal.to_dict()),200
+    return jsonify(meals.to_dict()),200
 
+@app.route('/users/<int:id_user>/meals', methods=['GET'])
+def get_all_meal(id_user):
+
+    if current_user.id != id_user and current_user.role != 'admin':
+        return jsonify({"message": "Forbidden"}), 403
+
+    meals = Meal.query.filter_by(user_id=id_user).all()
+
+    if not meals:
+        return jsonify({"message":"No meals found to this user"}), 404
+    
+    meal_list = [meal.to_dict() for meal in meals]
+
+    return jsonify(meal_list),200
+
+@app.route('/users/<int:id_user>', methods = ['DELETE'])
+@login_required
+def delete_user(id_user):
+
+    if current_user.role != "admin":
+        return jsonify({"message":"Operation not permited"}),403
+    
+    if id_user == current_user.id:
+        return jsonify({"message":"User deletion not permited"}),403   
+    
+    user_to_delete = db.session.get(User, id_user)
+
+    if not user_to_delete:
+        return jsonify({"message": f"User with id {id_user} not found."}), 404
+    
+    try:
+        db.session.delete(user_to_delete)
+        db.session.commit()
+        return jsonify({"message":f"User {id_user} deleted succefully"}),200
+    
+    except:
+        db.session.rollback()
+        return jsonify({"message":"Internal error."}), 500
+    
+@app.route('/users/<int:id_user>/meals/<int:id_meal>/', methods = ['DELETE'])
+@login_required
+def delete_meal(id_user, id_meal):
+
+    if current_user.id != id_user and current_user.role != "admin":
+        return jsonify({"message":"Operation not permited"}),403
+    
+    meal_to_delete = Meal.query.filter_by(id=id_meal, user_id=id_user).first()
+    
+    if not meal_to_delete:
+        return jsonify({"message": "Meal not found."}), 404
+    
+    try:
+        db.session.delete(meal_to_delete)
+        db.session.commit()
+        return jsonify({"message":"Meal deleted succefully"}),200
+    
+    except:
+        db.session.rollback()
+        return jsonify({"message":"Internal error."}), 500
+     
+
+@app.route('/users/<int:id_user>/meals/<int:id_meal>', methods = ['PUT'])
+@login_required
+def update_meal(id_user, id_meal):
+
+    meal_to_update = Meal.query.filter_by(id=id_meal, user_id=id_user).first()
+
+    data = request.json
+
+    try:
+        if "name" in data:
+            meal_to_update.name = data["name"]
+
+        if "description" in data:
+            meal_to_update.description = data["description"]
+
+        if "is_on_diet" in data:
+            meal_to_update.is_on_diet = data["is_on_diet"]
+
+        db.session.commit()
+        return jsonify({"message":"Meal updated"})
+    
+    except:
+        db.session.rollback()
+        print("Error updating meal.")
+        return({"message":"Internal error"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
-
