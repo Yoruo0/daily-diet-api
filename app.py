@@ -57,7 +57,7 @@ def create_user():
     
     hashed_password = bcrypt.hashpw(password.encode('utf8'), bcrypt.gensalt()) 
 
-    new_user = User(username=username, password=hashed_password, role ='user')
+    new_user = User(username=username, password=hashed_password)
 
     try:
         db.session.add(new_user)
@@ -66,8 +66,7 @@ def create_user():
     except:
         db.session.rollback()
         return jsonify({"message": "Internal error."}), 501
-    
-    
+
 @app.route('/users/<int:id_user>', methods = ['GET'])
 @login_required
 def read_user(id_user):
@@ -82,10 +81,13 @@ def read_user(id_user):
     
     return jsonify({"message":"User not found"}), 404
     
-
-@app.route('/user/meal', methods=['POST'])
+@app.route('/users/<int:id_user>/meals', methods=['POST'])
 @login_required
-def register_meal():
+def register_meal(id_user):
+
+    if current_user.id != id_user:
+        return jsonify({"message": "Forbidden"}), 403
+    
     data = request.json
     name = data.get("name")
     description = data.get("description")
@@ -93,24 +95,39 @@ def register_meal():
     is_on_diet = data.get("is_on_diet")
 
     if any(value is None for value in[name, description, datetime, is_on_diet]):
-
         return jsonify({"message":"Missing data required."}), 404
     
-    return jsonify({"message":"Meal registered succefully."})
+    try:
+        new_meal = Meal(
+            name=name,
+            description=description,
+            datetime=datetime,
+            is_on_diet=is_on_diet,
+            user_id=id_user
+        )
+        db.session.add(new_meal)
+        db.session.commit()
 
-@app.route('/meal/<int:id>', methods=['GET'])
+        return jsonify({"message":"Meal registered"}), 200
+    
+    except:
+        db.session.rollback()
+        return jsonify({"message":"Internal error."}), 500
+
+@app.route('/users/<int:id_user>/meals/<int:id_meal>/', methods=['GET'])
 @login_required
-def get_meal(id):
-    meal = Meal.query.get(id)
+def get_meal_details(id_user, id_meal):
 
-    if meal:
-        return jsonify({
-            "username":meal.username,
-            "description":meal.description,
-            "datetime": meal.datetime,
-            "is_on_diet": meal.is_on_diet
-        })
-    return jsonify({"message":"Meal not found"}), 404
+    if current_user.id != id_user:
+        return jsonify({"message": "Forbidden"}), 403
+
+    meal = Meal.query.filter_by(id=id_meal, user_id=id_user).first()
+
+    if not meal:
+        return jsonify({"message":"Meal not found."}), 404
+    
+    return jsonify(meal.to_dict()),200
+
 
 if __name__ == '__main__':
     app.run(debug=True)
